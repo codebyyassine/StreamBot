@@ -40,7 +40,7 @@ export class QueueService {
 		url: string,
 		title: string,
 		requestedBy: string,
-		type: 'youtube' | 'twitch' | 'local' | 'url' = 'url',
+		type: 'youtube' | 'twitch' | 'kick' | 'local' | 'url' = 'url',
 		isLive: boolean = false,
 		originalInput?: string
 	): Promise<QueueItem> {

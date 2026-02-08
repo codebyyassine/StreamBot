@@ -1,5 +1,6 @@
 import { getStream, getVod, getBestStream } from './twitch-fetcher.js';
-import { TwitchStream, MediaSource } from '../types/index.js';
+import { getKickLiveStream, getKickVod, parseKickUrl, getBestKickStream, KICK_QUALITIES } from './kick-fetcher.js';
+import { TwitchStream, KickStream, MediaSource } from '../types/index.js';
 import config from "../config.js";
 import logger from '../utils/logger.js';
 import { Youtube } from '../utils/youtube.js';
@@ -22,6 +23,8 @@ export class MediaService {
 				return await this._resolveYouTubeSource(url);
 			} else if (url.includes('twitch.tv/')) {
 				return await this._resolveTwitchSource(url);
+			} else if (url.includes('kick.com/')) {
+				return await this._resolveKickSource(url);
 			} else if (GeneralUtils.isLocalFile(url)) {
 				return this._resolveLocalSource(url);
 			} else if (GeneralUtils.isValidUrl(url)) {
@@ -93,6 +96,44 @@ export class MediaService {
 		}
 	}
 
+	public async getKickStreamUrl(url: string): Promise<string | null> {
+		try {
+			logger.info(`Fetching Kick stream URL: ${url}`);
+
+			// Parse the Kick URL
+			const parsedUrl = parseKickUrl(url);
+			if (!parsedUrl) {
+				logger.error('Invalid Kick URL format');
+				return null;
+			}
+
+			const { channelName, videoSlug } = parsedUrl;
+
+			// If videoSlug exists, it's a VOD
+			if (videoSlug) {
+				const vod = await getKickVod(channelName, videoSlug, 'auto');
+				if (vod?.url) {
+					logger.info(`Found Kick VOD stream: ${vod.quality}`);
+					return vod.url;
+				}
+				logger.error("No Kick VOD URL found");
+				return null;
+			} else {
+				// It's a live stream
+				const stream = await getKickLiveStream(channelName, 'auto');
+				if (stream?.url) {
+					logger.info(`Found Kick live stream: ${stream.quality}`);
+					return stream.url;
+				}
+				logger.error("No Kick stream URL found");
+				return null;
+			}
+		} catch (error) {
+			logger.error("Failed to get Kick stream URL:", error);
+			return null;
+		}
+	}
+
 	public async downloadYouTubeVideo(url: string): Promise<string | null> {
 		try {
 			const ytDlpDownloadOptions = {
@@ -106,7 +147,7 @@ export class MediaService {
 			logger.error("Failed to download YouTube video:", error);
 			return null;
 		}
-	
+
 	}
 
 	private async _resolveTwitchSource(url: string): Promise<MediaSource | null> {
@@ -118,6 +159,24 @@ export class MediaService {
 				title: `twitch.tv/${twitchId}`,
 				type: 'twitch'
 			};
+		}
+		return null;
+	}
+
+	private async _resolveKickSource(url: string): Promise<MediaSource | null> {
+		const streamUrl = await this.getKickStreamUrl(url);
+		if (streamUrl) {
+			const parsedUrl = parseKickUrl(url);
+			if (parsedUrl) {
+				const { channelName, videoSlug } = parsedUrl;
+				const title = videoSlug ? `kick.com/${channelName}/${videoSlug}` : `kick.com/${channelName}`;
+				return {
+					url: streamUrl,
+					title: title,
+					type: 'kick',
+					isLive: !videoSlug // Only live if no videoSlug
+				};
+			}
 		}
 		return null;
 	}

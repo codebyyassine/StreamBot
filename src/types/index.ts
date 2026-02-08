@@ -28,6 +28,17 @@ export interface TwitchStream {
 	codecs?: string;
 }
 
+export interface KickStream {
+	quality: string;
+	resolution: string;
+	url: string;
+	width?: number;
+	height?: number;
+	bandwidth?: number;
+	framerate?: number;
+	codecs?: string;
+}
+
 export interface YTFormat {
 	asr: number,
 	filesize: number,
@@ -307,7 +318,7 @@ export interface Command {
 export interface MediaSource {
  	url: string;
  	title: string;
- 	type: 'youtube' | 'twitch' | 'local' | 'url';
+ 	type: 'youtube' | 'twitch' | 'kick' | 'local' | 'url';
  	isLive?: boolean;
 }
 
