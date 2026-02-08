@@ -13,6 +13,7 @@ export interface KickStream {
 	bandwidth?: number;
 	framerate?: number;
 	codecs?: string;
+	available_qualities?: string[];
 }
 
 /**
@@ -21,12 +22,13 @@ export interface KickStream {
 export const KICK_QUALITIES = ['auto', '1080p60', '720p60', '480p30', '360p30', '160p30'];
 
 /**
- * Interface for Python script response
+ * Interface for Python script response (updated to include available_qualities)
  */
 interface PythonKickResponse {
 	success: boolean;
 	url: string | null;
 	quality: string;
+	available_qualities: string[];
 	error?: string;
 }
 
