@@ -4,13 +4,21 @@ import logger from '../utils/logger.js';
 import { TwitchStream } from '../types/index.js';
 
 /**
+ * GraphQL response interface
+ */
+interface GraphQLResponse {
+	data?: any;
+	errors?: Array<{ message: string }>;
+}
+
+/**
  * Parse M3U8 playlist to extract stream URLs
  */
 function parseM3U8(content: string): TwitchStream[] {
 	const streams: TwitchStream[] = [];
 	const lines = content.split('\n');
 
-	let currentStream: Partial<TwitchStream> | null = null;
+	let currentStream: Record<string, any> | null = null;
 
 	for (const line of lines) {
 		const trimmedLine = line.trim();
@@ -105,7 +113,7 @@ async function getAccessToken(channelId: string, isVod: boolean = false): Promis
 			headers: {
 				'Client-Id': 'kimne78kx3ncx6brgo4mv6wki5h1ko'
 			}
-		}).json();
+		}).json() as GraphQLResponse;
 
 		if (response.errors) {
 			throw new Error(`GraphQL error: ${JSON.stringify(response.errors)}`);

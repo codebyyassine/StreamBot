@@ -42,7 +42,7 @@ function shouldProxyUrl(url: string): boolean {
 /**
  * Create a proxy agent if enabled
  */
-function createProxyAgent(): HttpsProxyAgent | undefined {
+function createProxyAgent(): HttpsProxyAgent<string> | undefined {
 	if (!config.twitchAdblockEnabled) {
 		return undefined;
 	}
@@ -50,7 +50,7 @@ function createProxyAgent(): HttpsProxyAgent | undefined {
 	try {
 		const proxyUrl = `${config.twitchAdblockProxyProtocol}://${config.twitchAdblockProxyHost}:${config.twitchAdblockProxyPort}`;
 		logger.info(`Using Twitch adblock proxy: ${proxyUrl}`);
-		return new HttpsProxyAgent(proxyUrl);
+		return new HttpsProxyAgent<string>(proxyUrl);
 	} catch (error) {
 		logger.error('Failed to create proxy agent:', error);
 		return undefined;

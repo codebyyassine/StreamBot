@@ -21,6 +21,11 @@ export interface TwitchStream {
 	quality: string;
 	resolution: string;
 	url: string;
+	width?: number;
+	height?: number;
+	bandwidth?: number;
+	framerate?: number;
+	codecs?: string;
 }
 
 export interface YTFormat {
