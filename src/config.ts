@@ -95,4 +95,10 @@ export default {
 	server_username: process.env.SERVER_USERNAME ? process.env.SERVER_USERNAME : 'admin',
 	server_password: process.env.SERVER_PASSWORD ? process.env.SERVER_PASSWORD : 'admin',
 	server_port: parseInt(process.env.SERVER_PORT ? process.env.SERVER_PORT : '8080'),
+
+	// Twitch adblocker options
+	twitchAdblockEnabled: process.env.TWITCH_ADBLOCK_ENABLED ? parseBoolean(process.env.TWITCH_ADBLOCK_ENABLED) : true,
+	twitchAdblockProxyHost: process.env.TWITCH_ADBLOCK_PROXY_HOST ? process.env.TWITCH_ADBLOCK_PROXY_HOST : 'firefox.api.cdn-perfprod.com',
+	twitchAdblockProxyPort: process.env.TWITCH_ADBLOCK_PROXY_PORT ? parseInt(process.env.TWITCH_ADBLOCK_PROXY_PORT) : 2023,
+	twitchAdblockProxyProtocol: process.env.TWITCH_ADBLOCK_PROXY_PROTOCOL ? process.env.TWITCH_ADBLOCK_PROXY_PROTOCOL : 'http',
 }

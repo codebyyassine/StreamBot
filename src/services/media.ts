@@ -1,4 +1,4 @@
-import { getStream, getVod } from 'twitch-m3u8';
+import { getStream, getVod, getBestStream } from './twitch-fetcher.js';
 import { TwitchStream, MediaSource } from '../types/index.js';
 import config from "../config.js";
 import logger from '../utils/logger.js';
@@ -7,6 +7,7 @@ import ytdl, { downloadToTempFile } from '../utils/yt-dlp.js';
 import { GeneralUtils } from '../utils/shared.js';
 import { YTResponse } from '../types/index.js';
 import path from 'path';
+import { isProxyEnabled } from './proxy.js';
 
 export class MediaService {
 	private youtube: Youtube;
@@ -56,12 +57,18 @@ export class MediaService {
 
 	public async getTwitchStreamUrl(url: string): Promise<string | null> {
 		try {
+			// Log proxy status
+			const proxyEnabled = isProxyEnabled();
+			logger.info(`Twitch adblock proxy: ${proxyEnabled ? 'ENABLED' : 'DISABLED'}`);
+
 			// Handle VODs
 			if (url.includes('/videos/')) {
 				const vodId = url.split('/videos/').pop() as string;
 				const vodInfo = await getVod(vodId);
-				const vod = vodInfo.find((stream: TwitchStream) => stream.resolution === `${config.width}x${config.height}`) || vodInfo[0];
+				const preferredResolution = `${config.width}x${config.height}`;
+				const vod = getBestStream(vodInfo, preferredResolution) || vodInfo[0];
 				if (vod?.url) {
+					logger.info(`Selected VOD stream: ${vod.resolution} (${vod.bandwidth} bps)`);
 					return vod.url;
 				}
 				logger.error("No VOD URL found");
@@ -69,8 +76,10 @@ export class MediaService {
 			} else {
 				const twitchId = url.split('/').pop() as string;
 				const streams = await getStream(twitchId);
-				const stream = streams.find((stream: TwitchStream) => stream.resolution === `${config.width}x${config.height}`) || streams[0];
+				const preferredResolution = `${config.width}x${config.height}`;
+				const stream = getBestStream(streams, preferredResolution) || streams[0];
 				if (stream?.url) {
+					logger.info(`Selected stream: ${stream.resolution} (${stream.bandwidth} bps)`);
 					return stream.url;
 				}
 				logger.error("No Stream URL found");
