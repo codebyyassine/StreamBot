@@ -12,7 +12,8 @@
     "build": "tsc",
     "watch": "tsc -w",
     "gen-hash": "bun src/utils/gen-hash.ts",
-    "gen-hash:node": "node dist/utils/gen-hash.js"
+    "gen-hash:node": "node dist/utils/gen-hash.js",
+    "setup-kick": "pip install -r src/scripts/requirements.txt"
   },
   "author": "ysdragon",
   "license": "MIT",

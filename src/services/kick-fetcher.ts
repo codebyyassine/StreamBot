@@ -1,25 +1,5 @@
-import got from 'got';
 import logger from '../utils/logger.js';
-
-/**
- * Kick API response types
- */
-interface KickChannel {
-	id: string;
-	username: string;
-	videos: KickVideo[];
-}
-
-interface KickVideo {
-	uuid: string;
-	thumbnail: { src: string };
-	start_time: string;
-}
-
-interface KickChannelInfo {
-	id: string;
-	username: string;
-}
+import { executePythonScript } from '../utils/python-script.js';
 
 /**
  * Kick stream interface
@@ -36,236 +16,90 @@ export interface KickStream {
 }
 
 /**
- * Kick API response wrapper
- */
-interface KickAPIResponse {
-	data?: any;
-	errors?: Array<{ message: string }>;
-}
-
-/**
- * Base URLs to try for Kick streams
- */
-const KICK_BASE_URLS = [
-	'https://stream.kick.com/ivs/v1/196233775518',
-	'https://stream.kick.com/3c81249a5ce0/ivs/v1/196233775518',
-	'https://stream.kick.com/0f3cb0ebce7/ivs/v1/196233775518'
-];
-
-/**
  * Available quality options for Kick streams
  */
 export const KICK_QUALITIES = ['auto', '1080p60', '720p60', '480p30', '360p30', '160p30'];
 
 /**
- * Get Kick channel information
+ * Interface for Python script response
  */
-async function getKickChannelInfo(channelName: string): Promise<KickChannelInfo> {
-	try {
-		const response = await got.get(`https://kick.com/api/v2/channels/${channelName}`, {
-			headers: {
-				'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-			},
-			timeout: {
-				request: 15000
-			}
-		}).json() as KickAPIResponse;
-
-		if (response.errors) {
-			throw new Error(`Kick API error: ${JSON.stringify(response.errors)}`);
-		}
-
-		if (!response.data) {
-			throw new Error('No data returned from Kick API');
-		}
-
-		return {
-			id: response.data.id,
-			username: response.data.username
-		};
-	} catch (error) {
-		logger.error('Failed to get Kick channel info:', error);
-		throw error;
-	}
+interface PythonKickResponse {
+	success: boolean;
+	url: string | null;
+	quality: string;
+	error?: string;
 }
 
 /**
- * Get Kick channel with videos
- */
-async function getKickChannelVideos(channelName: string): Promise<KickChannel> {
-	try {
-		const response = await got.get(`https://kick.com/api/v2/channels/${channelName}/videos`, {
-			headers: {
-				'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-			},
-			timeout: {
-				request: 15000
-			}
-		}).json() as KickAPIResponse;
-
-		if (response.errors) {
-			throw new Error(`Kick API error: ${JSON.stringify(response.errors)}`);
-		}
-
-		if (!response.data) {
-			throw new Error('No data returned from Kick API');
-		}
-
-		return response.data as KickChannel;
-	} catch (error) {
-		logger.error('Failed to get Kick channel videos:', error);
-		throw error;
-	}
-}
-
-/**
- * Generate Kick stream URLs for a video
- */
-async function generateKickStreamUrls(channelName: string, videoSlug: string, quality: string): Promise<string | null> {
-	try {
-		const channelVideos = await getKickChannelVideos(channelName);
-
-		// Find the video by UUID
-		const video = channelVideos.videos.find((v: KickVideo) => v.uuid === videoSlug);
-		if (!video) {
-			logger.error(`Video ${videoSlug} not found for channel ${channelName}`);
-			return null;
-		}
-
-		// Parse thumbnail URL to extract channel_id and video_id
-		const thumbnailUrl = video.thumbnail.src;
-		const pathParts = thumbnailUrl.split('/');
-		if (pathParts.length < 6) {
-			logger.error('Invalid thumbnail URL format');
-			return null;
-		}
-
-		const channelId = pathParts[4];
-		const videoId = pathParts[5];
-
-		// Parse start time
-		const startTime = new Date(video.start_time);
-
-		// Try all base URLs with ±5 minutes offset
-		for (const offset of [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]) {
-			const adjustedTime = new Date(startTime.getTime() + offset * 60 * 1000);
-
-			const year = adjustedTime.getFullYear();
-			const month = adjustedTime.getMonth() + 1; // getMonth() is 0-indexed
-			const day = adjustedTime.getDate();
-			const hour = adjustedTime.getHours();
-			const minute = adjustedTime.getMinutes();
-
-			for (const baseUrl of KICK_BASE_URLS) {
-				const streamUrl = `${baseUrl}/${channelId}/${year}/${month}/${day}/${hour}/${minute}/${videoId}/media/hls/${quality === 'auto' ? 'master.m3u8' : `${quality}/playlist.m3u8`}`;
-
-				logger.debug(`Trying stream URL: ${streamUrl}`);
-
-				// Test the URL with a HEAD request
-				try {
-					const response = await got.head(streamUrl, {
-						headers: {
-							'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-						},
-						timeout: {
-							request: 5000
-						},
-						throwHttpErrors: false
-					});
-
-					if (response.statusCode === 200) {
-						logger.info(`Found valid Kick stream at offset ${offset} minute(s): ${streamUrl}`);
-						return streamUrl;
-					}
-				} catch (testError) {
-					// Continue to next URL
-					continue;
-				}
-			}
-		}
-
-		logger.error('Could not find a valid Kick stream within ±5 minutes');
-		return null;
-	} catch (error) {
-		logger.error('Failed to generate Kick stream URLs:', error);
-		return null;
-	}
-}
-
-/**
- * Get live Kick stream URL for a channel
+ * Get live Kick stream URL for a channel using Python script
  */
 export async function getKickLiveStream(channelName: string, quality: string = 'auto'): Promise<KickStream | null> {
 	try {
-		logger.info(`Fetching live Kick stream for channel: ${channelName}`);
+		const kickUrl = `https://kick.com/${channelName}`;
+		logger.info(`Fetching live Kick stream for channel: ${channelName} via Python script`);
 
-		// Get channel info
-		const channelInfo = await getKickChannelInfo(channelName);
+		const { stdout } = await executePythonScript('kick-fetch.py', [kickUrl, quality], 30000);
+		const result: PythonKickResponse = JSON.parse(stdout);
 
-		// Get channel's live stream
-		const response = await got.get(`https://kick.com/api/v2/channels/${channelName}/livestream`, {
-			headers: {
-				'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-			},
-			timeout: {
-				request: 15000
-			}
-		}).json() as KickAPIResponse;
-
-		if (response.errors) {
-			throw new Error(`Kick API error: ${JSON.stringify(response.errors)}`);
-		}
-
-		if (!response.data || !response.data.livestream) {
-			logger.error(`Channel ${channelName} is not currently live`);
-			return null;
-		}
-
-		const livestreamData = response.data.livestream;
-
-		// Check if we have HLS playback URL
-		if (livestreamData.hls_playlist_url) {
-			logger.info(`Found live Kick stream: ${livestreamData.hls_playlist_url}`);
-
-			// If auto quality, use the master playlist
-			const streamUrl = quality === 'auto' ? livestreamData.hls_playlist_url : `${livestreamData.hls_playlist_url.replace('master.m3u8', '')}${quality}/playlist.m3u8`;
-
+		if (result.success && result.url) {
+			logger.info(`Found Kick stream via Python: ${result.url}`);
 			return {
-				url: streamUrl,
-				quality: quality,
-				resolution: quality === 'auto' ? 'auto' : quality,
+				url: result.url,
+				quality: result.quality,
+				resolution: result.quality === 'auto' ? 'auto' : result.quality,
 			};
 		}
 
-		logger.error(`No HLS playlist URL found for live stream of channel ${channelName}`);
+		if (result.error) {
+			logger.error(`Python script error: ${result.error}`);
+		}
+
 		return null;
-	} catch (error) {
-		logger.error(`Failed to get live Kick stream for channel ${channelName}:`, error);
+	} catch (error: any) {
+		logger.error(`Failed to get live Kick stream via Python:`, error);
+
+		// If the error is about missing cloudscraper, provide helpful message
+		if (error.stderr && 'cloudscraper' in error.stderr) {
+			logger.error('cloudscraper is not installed. Run: pip install -r src/scripts/requirements.txt');
+		}
+
 		return null;
 	}
 }
 
 /**
- * Get Kick VOD stream URL
+ * Get Kick VOD stream URL using Python script
  */
 export async function getKickVod(channelName: string, videoSlug: string, quality: string = 'auto'): Promise<KickStream | null> {
 	try {
-		logger.info(`Fetching Kick VOD: ${channelName}/${videoSlug}`);
+		const kickUrl = `https://kick.com/${channelName}/video/${videoSlug}`;
+		logger.info(`Fetching Kick VOD: ${channelName}/${videoSlug} via Python script`);
 
-		// Generate and test stream URLs
-		const streamUrl = await generateKickStreamUrls(channelName, videoSlug, quality);
+		const { stdout } = await executePythonScript('kick-fetch.py', [kickUrl, quality], 30000);
+		const result: PythonKickResponse = JSON.parse(stdout);
 
-		if (streamUrl) {
+		if (result.success && result.url) {
+			logger.info(`Found Kick VOD stream via Python: ${result.url}`);
 			return {
-				url: streamUrl,
-				quality: quality,
-				resolution: quality === 'auto' ? 'auto' : quality,
+				url: result.url,
+				quality: result.quality,
+				resolution: result.quality === 'auto' ? 'auto' : result.quality,
 			};
 		}
 
+		if (result.error) {
+			logger.error(`Python script error: ${result.error}`);
+		}
+
 		return null;
-	} catch (error) {
-		logger.error(`Failed to get Kick VOD ${channelName}/${videoSlug}:`, error);
+	} catch (error: any) {
+		logger.error(`Failed to get Kick VOD via Python:`, error);
+
+		// If the error is about missing cloudscraper, provide helpful message
+		if (error.stderr && 'cloudscraper' in error.stderr) {
+			logger.error('cloudscraper is not installed. Run: pip install -r src/scripts/requirements.txt');
+		}
+
 		return null;
 	}
 }
