@@ -61,9 +61,9 @@ const proxyAgent = createProxyAgent();
 
 /**
  * Create a got instance with optional proxy support
- * Only proxies requests to specific Twitch domains
+ * Only proxies requests to specific Twitch domains (unless proxyStream is enabled)
  */
-export function createGotInstance() {
+export function createGotInstance(forceProxy: boolean = false) {
 	return got.extend({
 		agent: {
 			http: proxyAgent,
@@ -73,7 +73,7 @@ export function createGotInstance() {
 			beforeRequest: [
 				(options) => {
 					const url = options.url?.toString() || '';
-					const shouldProxy = shouldProxyUrl(url);
+					const shouldProxy = shouldProxyUrl(url) || forceProxy;
 
 					if (shouldProxy && proxyAgent) {
 						logger.debug(`Proxying request to: ${url}`);
@@ -111,13 +111,25 @@ export function createGotInstance() {
 }
 
 /**
- * Export a pre-configured got instance
+ * Export a pre-configured got instance for API requests only
  */
-export const gotWithProxy = createGotInstance();
+export const gotWithProxy = createGotInstance(false);
+
+/**
+ * Export a pre-configured got instance for streaming (with optional proxy)
+ */
+export const gotForStreaming = createGotInstance(config.twitchAdblockProxyStream);
 
 /**
  * Check if proxy is enabled
  */
 export function isProxyEnabled(): boolean {
 	return config.twitchAdblockEnabled && !!proxyAgent;
+}
+
+/**
+ * Check if stream should be proxied
+ */
+export function shouldProxyStream(): boolean {
+	return config.twitchAdblockEnabled && config.twitchAdblockProxyStream && !!proxyAgent;
 }

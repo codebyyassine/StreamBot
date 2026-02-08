@@ -7,7 +7,7 @@ import ytdl, { downloadToTempFile } from '../utils/yt-dlp.js';
 import { GeneralUtils } from '../utils/shared.js';
 import { YTResponse } from '../types/index.js';
 import path from 'path';
-import { isProxyEnabled } from './proxy.js';
+import { isProxyEnabled, shouldProxyStream } from './proxy.js';
 
 export class MediaService {
 	private youtube: Youtube;
@@ -59,7 +59,9 @@ export class MediaService {
 		try {
 			// Log proxy status
 			const proxyEnabled = isProxyEnabled();
+			const streamProxyEnabled = shouldProxyStream();
 			logger.info(`Twitch adblock proxy: ${proxyEnabled ? 'ENABLED' : 'DISABLED'}`);
+			logger.info(`Stream proxy: ${streamProxyEnabled ? 'ENABLED' : 'DISABLED'}`);
 
 			// Handle VODs
 			if (url.includes('/videos/')) {

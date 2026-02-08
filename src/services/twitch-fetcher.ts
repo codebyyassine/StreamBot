@@ -1,4 +1,5 @@
-import { gotWithProxy } from './proxy.js';
+import { gotWithProxy, isProxyEnabled, shouldProxyStream, gotForStreaming } from './proxy.js';
+import got from 'got';
 import config from '../config.js';
 import logger from '../utils/logger.js';
 import { TwitchStream } from '../types/index.js';
@@ -166,7 +167,13 @@ async function getVodPlaylist(vodId: string): Promise<string> {
  */
 async function fetchAndParsePlaylist(playlistUrl: string): Promise<TwitchStream[]> {
 	try {
-		const response = await gotWithProxy.get(playlistUrl, {
+		// Use gotForStreaming if proxy stream is enabled, otherwise use gotWithProxy
+		const gotClient = shouldProxyStream() ? gotForStreaming : gotWithProxy;
+		const proxyMode = shouldProxyStream() ? ' (with stream proxy)' : '';
+
+		logger.debug(`Fetching playlist${proxyMode}: ${playlistUrl}`);
+
+		const response = await gotClient.get(playlistUrl, {
 			headers: {
 				'Accept': 'application/x-mpegURL, application/vnd.apple.mpegurl, application/json, text/plain, */*'
 			}
@@ -174,7 +181,36 @@ async function fetchAndParsePlaylist(playlistUrl: string): Promise<TwitchStream[
 
 		const content = response.body as string;
 		return parseM3U8(content);
-	} catch (error) {
+	} catch (error: any) {
+		// Check if this is a proxy-related error
+		const isProxyError = error.code === 'EPROTO' ||
+		                   error.message?.includes('proxy') ||
+		                   error.message?.includes('ECONNREFUSED') ||
+		                   error.message?.includes('ETIMEDOUT');
+
+		if (isProxyError && isProxyEnabled()) {
+			logger.warn('Proxy failed for playlist, falling back to direct connection:', error.message);
+			logger.warn('You can disable proxy by setting TWITCH_ADBLOCK_ENABLED=false');
+
+			// Try again without proxy
+			try {
+				const directResponse = await got.get(playlistUrl, {
+					headers: {
+						'Accept': 'application/x-mpegURL, application/vnd.apple.mpegurl, application/json, text/plain, */*'
+					},
+					timeout: {
+						request: 30000
+					}
+				});
+
+				const content = directResponse.body as string;
+				return parseM3U8(content);
+			} catch (directError) {
+				logger.error(`Direct connection also failed for ${playlistUrl}:`, directError);
+				throw directError;
+			}
+		}
+
 		logger.error(`Failed to fetch playlist from ${playlistUrl}:`, error);
 		throw error;
 	}

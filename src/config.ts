@@ -101,4 +101,5 @@ export default {
 	twitchAdblockProxyHost: process.env.TWITCH_ADBLOCK_PROXY_HOST ? process.env.TWITCH_ADBLOCK_PROXY_HOST : 'firefox.api.cdn-perfprod.com',
 	twitchAdblockProxyPort: process.env.TWITCH_ADBLOCK_PROXY_PORT ? parseInt(process.env.TWITCH_ADBLOCK_PROXY_PORT) : 2023,
 	twitchAdblockProxyProtocol: process.env.TWITCH_ADBLOCK_PROXY_PROTOCOL ? process.env.TWITCH_ADBLOCK_PROXY_PROTOCOL : 'http',
+	twitchAdblockProxyStream: process.env.TWITCH_ADBLOCK_PROXY_STREAM ? parseBoolean(process.env.TWITCH_ADBLOCK_PROXY_STREAM) : false,
 }
