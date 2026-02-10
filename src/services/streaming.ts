@@ -1,5 +1,5 @@
 import { Client, Message } from "discord.js-selfbot-v13";
-import { Streamer, Utils, prepareStream, playStream } from "@dank074/discord-video-stream";
+import { StreamerClient, prepareStream, playStream, normalizeVideoCodec } from "../streaming-engine/index.js";
 import fs from 'fs';
 import config from "../config.js";
 import { MediaService } from './media.js';
@@ -10,22 +10,22 @@ import { DiscordUtils, ErrorUtils } from '../utils/shared.js';
 import { QueueItem, StreamStatus } from '../types/index.js';
 
 export class StreamingService {
- 	private streamer: Streamer;
- 	private mediaService: MediaService;
- 	private queueService: QueueService;
- 	private controller: AbortController | null = null;
- 	private streamStatus: StreamStatus;
- 	private failedVideos: Set<string> = new Set();
- 	private isSkipping: boolean = false;
+	private streamer: StreamerClient;
+	private mediaService: MediaService;
+	private queueService: QueueService;
+	private controller: AbortController | null = null;
+	private streamStatus: StreamStatus;
+	private failedVideos: Set<string> = new Set();
+	private isSkipping: boolean = false;
 
- 	constructor(client: Client, streamStatus: StreamStatus) {
- 		this.streamer = new Streamer(client);
- 		this.mediaService = new MediaService();
- 		this.queueService = new QueueService();
- 		this.streamStatus = streamStatus;
- 	}
+	constructor(client: Client, streamStatus: StreamStatus) {
+		this.streamer = new StreamerClient(client);
+		this.mediaService = new MediaService();
+		this.queueService = new QueueService();
+		this.streamStatus = streamStatus;
+	}
 
-	public getStreamer(): Streamer {
+	public getStreamer(): StreamerClient {
 		return this.streamer;
 	}
 
@@ -109,7 +109,7 @@ export class StreamingService {
 			// Stop the current stream immediately
 			this.streamStatus.manualStop = true;
 			this.controller?.abort();
-			this.streamer.stopStream();
+			try { this.streamer.stopStream(); } catch { }
 
 			const currentItem = this.queueService.getCurrent(); // Get item being skipped
 			const nextItem = this.queueService.skip(); // Advance the queue
@@ -169,7 +169,7 @@ export class StreamingService {
 
 	private async ensureVoiceConnection(guildId: string, channelId: string, title?: string): Promise<void> {
 		// Only join voice if not already connected
-		if (!this.streamStatus.joined || !this.streamer.voiceConnection) {
+		if (!this.streamStatus.joined || !this.streamer.voiceGateway) {
 			await this.streamer.joinVoice(guildId, channelId);
 			this.streamStatus.joined = true;
 		}
@@ -184,7 +184,7 @@ export class StreamingService {
 		await new Promise(resolve => setTimeout(resolve, 2000));
 
 		// Verify voice connection exists
-		if (!this.streamer.voiceConnection) {
+		if (!this.streamer.voiceGateway) {
 			throw new Error('Voice connection is not established');
 		}
 	}
@@ -193,20 +193,21 @@ export class StreamingService {
 		return {
 			width: videoParams?.width || config.width,
 			height: videoParams?.height || config.height,
-			frameRate: videoParams?.fps || config.fps,
-			bitrateVideo: config.bitrateKbps,
-			bitrateVideoMax: config.maxBitrateKbps,
-			videoCodec: Utils.normalizeVideoCodec(config.videoCodec),
+			fps: videoParams?.fps || config.fps,
+			bitrateKbps: config.bitrateKbps,
+			maxBitrateKbps: config.maxBitrateKbps,
+			videoCodec: normalizeVideoCodec(config.videoCodec) as "H264" | "H265" | "VP8",
 			hardwareAcceleratedDecoding: config.hardwareAcceleratedDecoding,
-			minimizeLatency: false,
-			h26xPreset: config.h26xPreset
+			minimizeLatency: (config as any).minimizeLatency ?? false,
+			h26xPreset: config.h26xPreset,
+			audioBitrateKbps: 128,
 		};
 	}
 
 	private async executeStream(inputForFfmpeg: any, streamOpts: any, message: Message, title: string, videoSource: string): Promise<void> {
 		const { command, output: ffmpegOutput } = prepareStream(inputForFfmpeg, streamOpts, this.controller!.signal);
 
-		command.on("error", (err, stdout, stderr) => {
+		command.on("error", (err: any, stdout: any, stderr: any) => {
 			// Don't log error if it's due to manual stop
 			if (!this.streamStatus.manualStop && this.controller && !this.controller.signal.aborted) {
 				logger.error("An error happened with ffmpeg:", err.message);
@@ -220,11 +221,15 @@ export class StreamingService {
 			}
 		});
 
-		await playStream(ffmpegOutput, this.streamer, undefined, this.controller!.signal)
+		await playStream(ffmpegOutput, this.streamer, {
+			videoCodec: streamOpts.videoCodec,
+			width: streamOpts.width,
+			height: streamOpts.height,
+			fps: streamOpts.fps,
+		}, this.controller!.signal)
 			.catch((err) => {
 				if (this.controller && !this.controller.signal.aborted) {
 					logger.error('playStream error:', err);
-					// Send error message to user
 					DiscordUtils.sendError(message, `Stream error: ${err.message || 'Unknown error'}`).catch(e =>
 						logger.error('Failed to send error message:', e)
 					);
@@ -370,13 +375,12 @@ export class StreamingService {
 	public async cleanupStreamStatus(): Promise<void> {
 		try {
 			this.controller?.abort();
-			this.streamer.stopStream();
+			try { this.streamer.stopStream(); } catch { }
 
 			// Only leave voice if we're not playing another video
-			// Check if there are items in queue that might be played
 			const hasQueueItems = !this.queueService.isEmpty();
 			if (!hasQueueItems) {
-				this.streamer.leaveVoice();
+				try { this.streamer.leaveVoice(); } catch { }
 				this.streamStatus.joined = false;
 				this.streamStatus.joinsucc = false;
 			}
